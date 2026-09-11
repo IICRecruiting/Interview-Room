@@ -38,12 +38,12 @@ const ROOMS = [
   { id: 4, label: "RNT4", color: "#6B4C7A", tint: "#F3EEF4" },
 ];
 const CONFLICT_COLOR = "#B3401D";
-const HOUR_HEIGHT = 60;
+const HOUR_HEIGHT_BASE = 60;
 const DAY_START = 8;
 const DAY_END = 21;
-const TOTAL_HEIGHT = HOUR_HEIGHT * (DAY_END - DAY_START);
 const MIN_TIME = "08:00";
 const MAX_TIME = "21:00";
+const clampZoom = (z) => Math.min(1.5, Math.max(0.6, z));
 
 const pad2 = (n) => String(n).padStart(2, "0");
 const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -89,11 +89,20 @@ function App() {
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [modal, setModal] = useState(null);
-  const [now, setNow] = useState(new Date());
+  const [zoom, setZoom] = useState(0.85);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(t);
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        setZoom((z) => clampZoom(z - e.deltaY * 0.0012));
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
   useEffect(() => {
@@ -105,7 +114,8 @@ function App() {
   }, []);
 
   const bookings = (allData && allData[currentDate]) || [];
-  const isToday = currentDate === toDateStr(new Date());
+  const hourHeight = HOUR_HEIGHT_BASE * zoom;
+  const totalHeight = hourHeight * (DAY_END - DAY_START);
 
   const persist = useCallback(async (dateStr, list) => {
     const next = { ...(allData || {}), [dateStr]: list };
@@ -156,9 +166,6 @@ function App() {
   const handleDelete = (id) => { persist(currentDate, bookings.filter(b => b.id !== id)); closeModal(); };
 
   const hours = Array.from({ length: DAY_END - DAY_START }, (_, i) => i + DAY_START);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const showNowLine = isToday && nowMinutes >= DAY_START * 60 && nowMinutes <= DAY_END * 60;
-  const nowTop = ((nowMinutes - DAY_START * 60) / 60) * HOUR_HEIGHT;
 
   if (allData === null) {
     return <div style={{ fontFamily: "-apple-system, sans-serif", padding: 40, color: "#6B7280" }}>불러오는 중...</div>;
@@ -175,6 +182,11 @@ function App() {
             <button onClick={() => setCurrentDate(d => addDays(d, 1))} style={iconBtnStyle}>▶</button>
           </div>
           <button onClick={() => setCurrentDate(toDateStr(new Date()))} style={{ marginTop: 12, width: "100%", background: "#2A2F3A", color: "#D9DCE3", border: "none", borderRadius: 7, padding: "7px 0", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>오늘로 이동</button>
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#2A2F3A", borderRadius: 7, padding: "5px 8px" }}>
+            <button onClick={() => setZoom(z => clampZoom(z - 0.1))} style={zoomBtnStyle}>－</button>
+            <span style={{ fontSize: 11.5, color: "#D9DCE3", fontFamily: "SFMono-Regular, Consolas, monospace" }}>{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom(z => clampZoom(z + 0.1))} style={zoomBtnStyle}>＋</button>
+          </div>
         </div>
 
         <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(20,22,28,0.05)" }}>
@@ -210,12 +222,13 @@ function App() {
             </div>
           ))}
         </div>
-        <div style={{ position: "relative", overflowY: "auto", flex: 1, minHeight: 0, paddingTop: 10, paddingBottom: 16 }}>
-          <div style={{ display: "flex", position: "relative", height: TOTAL_HEIGHT }}>
+        <div ref={scrollRef} style={{ position: "relative", overflowY: "auto", flex: 1, minHeight: 0 }}>
+          <div style={{ display: "flex", position: "relative", height: totalHeight, borderTop: "2px solid #AEB3BD", borderBottom: "2px solid #AEB3BD" }}>
             <div style={{ width: 56, flexShrink: 0, position: "relative" }}>
               {hours.map(h => (
-                <div key={h} style={{ position: "absolute", top: (h - DAY_START) * HOUR_HEIGHT - 7, right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(h)}:00</div>
+                <div key={h} style={{ position: "absolute", top: Math.max(0, (h - DAY_START) * hourHeight - 7), right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(h)}:00</div>
               ))}
+              <div style={{ position: "absolute", top: totalHeight - 7, right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(DAY_END)}:00</div>
             </div>
             {ROOMS.map(room => (
               <div key={room.id}
@@ -223,21 +236,18 @@ function App() {
                   if (e.target !== e.currentTarget) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const y = e.clientY - rect.top;
-                  const hour = DAY_START + Math.max(0, Math.min(DAY_END - DAY_START - 1, Math.floor(y / HOUR_HEIGHT)));
+                  const hour = DAY_START + Math.max(0, Math.min(DAY_END - DAY_START - 1, Math.floor(y / hourHeight)));
                   openAdd(room.id, hour);
                 }}
                 style={{ flex: 1, position: "relative", borderLeft: "1px solid #E4E6EA", cursor: "copy" }}
               >
                 {hours.map(h => (
-                  <div key={h} style={{ position: "absolute", top: (h - DAY_START) * HOUR_HEIGHT, left: 0, right: 0, height: 1, background: h % 3 === 0 ? "#E4E6EA" : "#F0F1F4" }} />
+                  <div key={h} style={{ position: "absolute", top: (h - DAY_START) * hourHeight, left: 0, right: 0, height: 1, background: h % 3 === 0 ? "#E4E6EA" : "#F0F1F4" }} />
                 ))}
-                {showNowLine && (
-                  <div style={{ position: "absolute", top: nowTop, left: 0, right: 0, height: 2, background: "#D6392A", zIndex: 3, opacity: 0.85 }} />
-                )}
                 {bookings.filter(b => b.room === room.id).map(b => {
                   const s = toMin(b.start), e = toMin(b.end);
-                  const top = ((s - DAY_START * 60) / 60) * HOUR_HEIGHT;
-                  const height = Math.max(((e - s) / 60) * HOUR_HEIGHT, 22);
+                  const top = ((s - DAY_START * 60) / 60) * hourHeight;
+                  const height = Math.max(((e - s) / 60) * hourHeight, 22);
                   const isConflict = conflictIds.has(b.id);
                   return (
                     <div key={b.id}
@@ -299,6 +309,7 @@ function App() {
 }
 
 const iconBtnStyle = { background: "#2A2F3A", border: "none", color: "#D9DCE3", width: 28, height: 28, borderRadius: 7, cursor: "pointer", fontSize: 12 };
+const zoomBtnStyle = { background: "#3A404C", border: "none", color: "#D9DCE3", width: 22, height: 22, borderRadius: 5, cursor: "pointer", fontSize: 12, lineHeight: 1 };
 const addBtnStyle = { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#181B21", color: "#fff", border: "none", borderRadius: 9, padding: "11px 0", fontSize: 13.5, fontWeight: 700, cursor: "pointer", boxShadow: "0 1px 3px rgba(20,22,28,0.15)" };
 const labelStyle = { display: "block", fontSize: 11.5, color: "#6B7280", marginBottom: 4, marginTop: 10, fontWeight: 500 };
 const inputStyle = { width: "100%", boxSizing: "border-box", border: "1px solid #E4E6EA", borderRadius: 8, padding: "8px 10px", fontSize: 13.5, marginBottom: 4 };

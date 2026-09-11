@@ -36,8 +36,17 @@ const ROOMS = [
   { id: 2, label: "RNT2", color: "#9C6644", tint: "#F6F0E9" },
   { id: 3, label: "RNT3", color: "#4F6D4F", tint: "#EEF3EE" },
   { id: 4, label: "RNT4", color: "#6B4C7A", tint: "#F3EEF4" },
-  { id: 5, label: "커피챗", color: "#C2607F", tint: "#FBEEF1", isVirtual: true },
+  { id: 5, label: "커피챗", color: "#B0546E", tint: "#FBEEF1", isVirtual: true },
 ];
+const ROOM_BY_ID = Object.fromEntries(ROOMS.map(r => [r.id, r]));
+
+const TYPES = {
+  interview: { label: "면접", color: "#3457D5" },
+  meeting: { label: "미팅", color: "#3F8F5F" },
+  coffeechat: { label: "커피챗", color: "#C2607F" },
+};
+const TYPE_ORDER = ["interview", "meeting", "coffeechat"];
+
 const CONFLICT_COLOR = "#B3401D";
 const HOUR_HEIGHT_BASE = 60;
 const DAY_START = 8;
@@ -53,7 +62,7 @@ const dowLabel = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); retur
 const fmtDate = (dateStr) => { const d = new Date(dateStr + "T00:00:00"); return `${d.getFullYear()}.${pad2(d.getMonth()+1)}.${pad2(d.getDate())} (${dowLabel(dateStr)})`; };
 const addDays = (dateStr, delta) => { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate()+delta); return toDateStr(d); };
 const genId = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-const emptyForm = { room: 1, team: "", start: "14:00", end: "15:00" };
+const emptyForm = { room: 1, team: "", start: "14:00", end: "15:00", type: "interview" };
 
 async function fetchAllData() {
   const res = await fetch(`${JSONBIN_URL}/latest`, { headers: { "X-Master-Key": JSONBIN_API_KEY } });
@@ -114,10 +123,13 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
-  const bookings = (allData && allData[currentDate]) || [];
+  const bookings = ((allData && allData[currentDate]) || []).map(b => ({ type: "interview", ...b }));
   const hourHeight = HOUR_HEIGHT_BASE * zoom;
   const totalHeight = hourHeight * (DAY_END - DAY_START);
-  const totalCount = bookings.length;
+
+  const typeCounts = { interview: 0, meeting: 0, coffeechat: 0 };
+  bookings.forEach(b => { typeCounts[b.type] = (typeCounts[b.type] || 0) + 1; });
+
   const perRoomCount = ROOMS.map(r => ({ ...r, count: bookings.filter(b => b.room === r.id).length }));
   const maxRoomCount = Math.max(1, ...perRoomCount.map(r => r.count));
 
@@ -152,10 +164,19 @@ function App() {
     const startM = toMin(start);
     const endM = Math.min(startM + 60, DAY_END * 60);
     const end = `${pad2(Math.floor(endM/60))}:${pad2(endM%60)}`;
-    setModal({ mode: "add", form: { ...emptyForm, room: roomId ?? 1, start, end } });
+    const room = roomId ?? 1;
+    const type = ROOM_BY_ID[room]?.isVirtual ? "coffeechat" : "interview";
+    setModal({ mode: "add", form: { ...emptyForm, room, start, end, type } });
   };
-  const openEdit = (b) => setModal({ mode: "edit", form: { ...b } });
+  const openEdit = (b) => setModal({ mode: "edit", form: { type: "interview", ...b } });
   const closeModal = () => setModal(null);
+
+  const setRoom = (roomId) => {
+    setModal(m => {
+      const forcedType = ROOM_BY_ID[roomId]?.isVirtual ? "coffeechat" : m.form.type;
+      return { ...m, form: { ...m.form, room: roomId, type: forcedType } };
+    });
+  };
 
   const handleSubmit = () => {
     const f = modal.form;
@@ -174,6 +195,8 @@ function App() {
   if (allData === null) {
     return <div style={{ fontFamily: "-apple-system, sans-serif", padding: 40, color: "#6B7280" }}>불러오는 중...</div>;
   }
+
+  const isVirtualRoomSelected = modal && ROOM_BY_ID[modal.form.room]?.isVirtual;
 
   return (
     <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#E9EAEE", color: "#181B21", height: "100vh", display: "flex", gap: 18, padding: 24, overflow: "hidden" }}>
@@ -194,23 +217,42 @@ function App() {
         </div>
 
         <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(20,22,28,0.05)" }}>
-          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 10, fontWeight: 600 }}>면접실 / 유형</div>
+          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 10, fontWeight: 600 }}>칸 (면접실 / 커피챗)</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ROOMS.map(r => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5, borderTop: r.isVirtual ? "1px dashed #E4E6EA" : "none", paddingTop: r.isVirtual ? 8 : 0, marginTop: r.isVirtual ? 2 : 0 }}>
-                <span style={{ width: 11, height: 11, borderRadius: 3.5, background: r.color, display: "inline-block" }} />{r.label}{r.isVirtual && <span style={{ fontSize: 11, color: "#9BA0AC" }}>&nbsp;· 방 아님</span>}
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5 }}>
+                <span style={{ width: 11, height: 11, borderRadius: 3.5, background: r.color, display: "inline-block" }} />{r.label}
               </div>
             ))}
           </div>
         </div>
 
         <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(20,22,28,0.05)" }}>
-          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 4, fontWeight: 600 }}>오늘 면접 현황</div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 10 }}>{totalCount}<span style={{ fontSize: 13, fontWeight: 500, color: "#6B7280", marginLeft: 3 }}>건</span></div>
+          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 10, fontWeight: 600 }}>일정 유형</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {TYPE_ORDER.map(t => (
+              <div key={t} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5 }}>
+                <span style={{ width: 11, height: 11, borderRadius: 3.5, background: TYPES[t].color, display: "inline-block" }} />{TYPES[t].label}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(20,22,28,0.05)" }}>
+          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 10, fontWeight: 600 }}>오늘 현황</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {TYPE_ORDER.map(t => (
+              <div key={t} style={{ flex: 1, textAlign: "center", background: "#F5F6F8", borderRadius: 8, padding: "8px 4px" }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: TYPES[t].color }}>{typeCounts[t]}</div>
+                <div style={{ fontSize: 10.5, color: "#6B7280", marginTop: 2 }}>{TYPES[t].label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "#9BA0AC", marginBottom: 8 }}>칸별 예약 현황</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {perRoomCount.map(r => (
               <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                <span style={{ width: 34, color: "#6B7280" }}>{r.label}</span>
+                <span style={{ width: 44, color: "#6B7280" }}>{r.label}</span>
                 <div style={{ flex: 1, height: 6, background: "#F0F1F4", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${(r.count / maxRoomCount) * 100}%`, height: "100%", background: r.color, borderRadius: 3 }} />
                 </div>
@@ -269,17 +311,18 @@ function App() {
                   const top = ((s - DAY_START * 60) / 60) * hourHeight;
                   const height = Math.max(((e - s) / 60) * hourHeight, 22);
                   const isConflict = conflictIds.has(b.id);
+                  const typeColor = (TYPES[b.type] || TYPES.interview).color;
                   return (
                     <div key={b.id}
                       onClick={(ev) => { ev.stopPropagation(); openEdit(b); }}
                       style={{
                         position: "absolute", top, height, left: 5, right: 5, borderRadius: 7, padding: "5px 8px",
                         fontSize: 12, color: "#fff", cursor: "pointer", overflow: "hidden",
-                        background: isConflict ? `repeating-linear-gradient(135deg, ${CONFLICT_COLOR}, ${CONFLICT_COLOR} 6px, #D6592E 6px, #D6592E 12px)` : room.color,
+                        background: isConflict ? `repeating-linear-gradient(135deg, ${CONFLICT_COLOR}, ${CONFLICT_COLOR} 6px, #D6592E 6px, #D6592E 12px)` : typeColor,
                         boxShadow: isConflict ? `0 0 0 2px #fff, 0 0 0 3.5px ${CONFLICT_COLOR}` : "0 1px 2px rgba(0,0,0,0.15)",
                         zIndex: isConflict ? 2 : 1,
                       }}
-                      title={`${b.team} ${b.start}~${b.end}`}
+                      title={`${TYPES[b.type]?.label || "면접"} · ${b.team} ${b.start}~${b.end}`}
                     >
                       <div style={{ fontWeight: 700, lineHeight: 1.35 }}>{isConflict ? "⚠ " : ""}{b.team}</div>
                       <div style={{ opacity: 0.9, fontSize: 11 }}>{b.start}~{b.end}</div>
@@ -296,13 +339,36 @@ function App() {
         <div onClick={closeModal} style={{ position: "fixed", inset: 0, background: "rgba(20,22,28,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 22, width: 320, boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div style={{ fontSize: 15.5, fontWeight: 700 }}>{modal.mode === "add" ? "면접 예약 추가" : "면접 예약 수정"}</div>
+              <div style={{ fontSize: 15.5, fontWeight: 700 }}>{modal.mode === "add" ? "일정 추가" : "일정 수정"}</div>
               <button onClick={closeModal} style={{ background: "none", border: "none", cursor: "pointer", color: "#9BA0AC", fontSize: 16 }}>✕</button>
             </div>
-            <label style={labelStyle}>면접실 / 유형</label>
-            <select value={modal.form.room} onChange={e => setModal(m => ({ ...m, form: { ...m.form, room: Number(e.target.value) } }))} style={inputStyle}>
+
+            <label style={labelStyle}>칸 (면접실 / 커피챗)</label>
+            <select value={modal.form.room} onChange={e => setRoom(Number(e.target.value))} style={inputStyle}>
               {ROOMS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
             </select>
+
+            <label style={labelStyle}>유형</label>
+            {isVirtualRoomSelected ? (
+              <div style={{ fontSize: 12.5, color: "#9BA0AC", padding: "6px 2px 4px" }}>커피챗 칸은 유형이 자동으로 '커피챗'으로 지정돼요.</div>
+            ) : (
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                {TYPE_ORDER.map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setModal(m => ({ ...m, form: { ...m.form, type: t } }))}
+                    style={{
+                      flex: 1, padding: "7px 0", borderRadius: 7, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                      border: modal.form.type === t ? `1.5px solid ${TYPES[t].color}` : "1.5px solid #E4E6EA",
+                      background: modal.form.type === t ? TYPES[t].color : "#fff",
+                      color: modal.form.type === t ? "#fff" : "#6B7280",
+                    }}
+                  >{TYPES[t].label}</button>
+                ))}
+              </div>
+            )}
+
             <label style={labelStyle}>팀 / 지원자명</label>
             <input value={modal.form.team} onChange={e => setModal(m => ({ ...m, form: { ...m.form, team: e.target.value } }))} placeholder="예: 법무전략팀" style={inputStyle} autoFocus />
             <div style={{ display: "flex", gap: 8 }}>

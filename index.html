@@ -36,6 +36,7 @@ const ROOMS = [
   { id: 2, label: "RNT2", color: "#9C6644", tint: "#F6F0E9" },
   { id: 3, label: "RNT3", color: "#4F6D4F", tint: "#EEF3EE" },
   { id: 4, label: "RNT4", color: "#6B4C7A", tint: "#F3EEF4" },
+  { id: 5, label: "커피챗", color: "#C2607F", tint: "#FBEEF1", isVirtual: true },
 ];
 const CONFLICT_COLOR = "#B3401D";
 const HOUR_HEIGHT_BASE = 60;
@@ -129,7 +130,7 @@ function App() {
 
   const conflictIds = useMemo(() => {
     const bad = new Set();
-    for (const room of ROOMS) {
+    for (const room of ROOMS.filter(r => !r.isVirtual)) {
       const rb = bookings.filter(b => b.room === room.id).map(b => ({ ...b, s: toMin(b.start), e: toMin(b.end) })).sort((a,b) => a.s - b.s);
       for (let i = 0; i < rb.length; i++) for (let j = i+1; j < rb.length; j++) if (rb[j].s < rb[i].e) { bad.add(rb[i].id); bad.add(rb[j].id); }
     }
@@ -138,7 +139,7 @@ function App() {
 
   const conflictPairs = useMemo(() => {
     const pairs = [];
-    for (const room of ROOMS) {
+    for (const room of ROOMS.filter(r => !r.isVirtual)) {
       const rb = bookings.filter(b => b.room === room.id).map(b => ({ ...b, s: toMin(b.start), e: toMin(b.end) })).sort((a,b) => a.s - b.s);
       for (let i = 0; i < rb.length; i++) for (let j = i+1; j < rb.length; j++) if (rb[j].s < rb[i].e) pairs.push({ room: room.label, a: rb[i], b: rb[j] });
     }
@@ -193,11 +194,11 @@ function App() {
         </div>
 
         <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(20,22,28,0.05)" }}>
-          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 10, fontWeight: 600 }}>면접실</div>
+          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 10, fontWeight: 600 }}>면접실 / 유형</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ROOMS.map(r => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5 }}>
-                <span style={{ width: 11, height: 11, borderRadius: 3.5, background: r.color, display: "inline-block" }} />{r.label}
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5, borderTop: r.isVirtual ? "1px dashed #E4E6EA" : "none", paddingTop: r.isVirtual ? 8 : 0, marginTop: r.isVirtual ? 2 : 0 }}>
+                <span style={{ width: 11, height: 11, borderRadius: 3.5, background: r.color, display: "inline-block" }} />{r.label}{r.isVirtual && <span style={{ fontSize: 11, color: "#9BA0AC" }}>&nbsp;· 방 아님</span>}
               </div>
             ))}
           </div>
@@ -241,13 +242,13 @@ function App() {
             </div>
           ))}
         </div>
-        <div ref={scrollRef} style={{ position: "relative", overflowY: "auto", flex: 1, minHeight: 0, paddingTop: 6, paddingBottom: 6 }}>
-          <div style={{ display: "flex", position: "relative", height: totalHeight, borderTop: "1px solid #D7DAE0", borderBottom: "1px solid #D7DAE0" }}>
+        <div ref={scrollRef} style={{ position: "relative", overflowY: "auto", flex: 1, minHeight: 0, paddingTop: 0, paddingBottom: 14 }}>
+          <div style={{ display: "flex", position: "relative", height: totalHeight }}>
             <div style={{ width: 56, flexShrink: 0, position: "relative" }}>
               {hours.map(h => (
-                <div key={h} style={{ position: "absolute", top: Math.max(0, (h - DAY_START) * hourHeight - 7), right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(h)}:00</div>
+                <div key={h} style={{ position: "absolute", top: (h - DAY_START) * hourHeight + 4, right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(h)}:00</div>
               ))}
-              <div style={{ position: "absolute", top: totalHeight - 7, right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(DAY_END)}:00</div>
+              <div style={{ position: "absolute", top: totalHeight - 15, right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(DAY_END)}:00</div>
             </div>
             {ROOMS.map(room => (
               <div key={room.id}
@@ -258,7 +259,7 @@ function App() {
                   const hour = DAY_START + Math.max(0, Math.min(DAY_END - DAY_START - 1, Math.floor(y / hourHeight)));
                   openAdd(room.id, hour);
                 }}
-                style={{ flex: 1, position: "relative", borderLeft: "1px solid #E4E6EA", cursor: "copy" }}
+                style={{ flex: 1, position: "relative", borderLeft: "1px solid #E4E6EA", borderTop: "1px solid #D7DAE0", borderBottom: "1px solid #D7DAE0", cursor: "copy" }}
               >
                 {hours.map(h => (
                   <div key={h} style={{ position: "absolute", top: (h - DAY_START) * hourHeight, left: 0, right: 0, height: 1, background: h % 3 === 0 ? "#E4E6EA" : "#F0F1F4" }} />
@@ -298,7 +299,7 @@ function App() {
               <div style={{ fontSize: 15.5, fontWeight: 700 }}>{modal.mode === "add" ? "면접 예약 추가" : "면접 예약 수정"}</div>
               <button onClick={closeModal} style={{ background: "none", border: "none", cursor: "pointer", color: "#9BA0AC", fontSize: 16 }}>✕</button>
             </div>
-            <label style={labelStyle}>면접실</label>
+            <label style={labelStyle}>면접실 / 유형</label>
             <select value={modal.form.room} onChange={e => setModal(m => ({ ...m, form: { ...m.form, room: Number(e.target.value) } }))} style={inputStyle}>
               {ROOMS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
             </select>

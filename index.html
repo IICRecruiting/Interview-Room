@@ -9,9 +9,10 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
   html, body, #root { height: 100%; margin: 0; }
-  body { background: #E9EAEE; }
+  body { background: #E9EAEE; overflow: hidden; }
   * { box-sizing: border-box; }
-  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #C7CBD3; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -31,13 +32,13 @@ const NEEDS_SETUP = JSONBIN_BIN_ID.includes("여기에") || JSONBIN_API_KEY.incl
 const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 
 const ROOMS = [
-  { id: 1, label: "RNT1", color: "#3D5A80" },
-  { id: 2, label: "RNT2", color: "#9C6644" },
-  { id: 3, label: "RNT3", color: "#4F6D4F" },
-  { id: 4, label: "RNT4", color: "#6B4C7A" },
+  { id: 1, label: "RNT1", color: "#3D5A80", tint: "#EEF2F7" },
+  { id: 2, label: "RNT2", color: "#9C6644", tint: "#F6F0E9" },
+  { id: 3, label: "RNT3", color: "#4F6D4F", tint: "#EEF3EE" },
+  { id: 4, label: "RNT4", color: "#6B4C7A", tint: "#F3EEF4" },
 ];
 const CONFLICT_COLOR = "#B3401D";
-const HOUR_HEIGHT = 56;
+const HOUR_HEIGHT = 60;
 const DAY_START = 8;
 const DAY_END = 21;
 const TOTAL_HEIGHT = HOUR_HEIGHT * (DAY_END - DAY_START);
@@ -53,12 +54,8 @@ const addDays = (dateStr, delta) => { const d = new Date(dateStr + "T00:00:00");
 const genId = () => `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 const emptyForm = { room: 1, team: "", start: "14:00", end: "15:00" };
 
-// ---------- JSONBin.io 저장소 도우미 ----------
-// 전체 데이터 구조: { "2026-09-11": [ {id, room, team, start, end}, ... ], ... }
 async function fetchAllData() {
-  const res = await fetch(`${JSONBIN_URL}/latest`, {
-    headers: { "X-Master-Key": JSONBIN_API_KEY },
-  });
+  const res = await fetch(`${JSONBIN_URL}/latest`, { headers: { "X-Master-Key": JSONBIN_API_KEY } });
   if (!res.ok) throw new Error("불러오기 실패");
   const json = await res.json();
   return json.record || {};
@@ -74,12 +71,12 @@ async function saveAllData(data) {
 
 function SetupNotice() {
   return (
-    <div style={{ fontFamily: "-apple-system, 'Segoe UI', sans-serif", background: "#E9EAEE", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ fontFamily: "-apple-system, 'Segoe UI', sans-serif", background: "#E9EAEE", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 28, maxWidth: 480, lineHeight: 1.7 }}>
         <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 10 }}>⚙️ 저장소 설정이 필요해요</div>
         <div style={{ fontSize: 14, color: "#3A3F4A" }}>
           이 파일 상단의 <code>JSONBIN_BIN_ID</code>, <code>JSONBIN_API_KEY</code> 두 값을
-          jsonbin.io에서 발급받은 값으로 바꿔주세요. (안내 문서 참고)
+          jsonbin.io에서 발급받은 값으로 바꿔주세요.
         </div>
       </div>
     </div>
@@ -88,12 +85,16 @@ function SetupNotice() {
 
 function App() {
   const [currentDate, setCurrentDate] = useState(toDateStr(new Date()));
-  const [allData, setAllData] = useState(null); // null = 아직 로드 전
+  const [allData, setAllData] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [modal, setModal] = useState(null);
-  const [copyState, setCopyState] = useState("idle");
-  const [copyFallbackText, setCopyFallbackText] = useState("");
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,16 +105,13 @@ function App() {
   }, []);
 
   const bookings = (allData && allData[currentDate]) || [];
+  const isToday = currentDate === toDateStr(new Date());
 
   const persist = useCallback(async (dateStr, list) => {
     const next = { ...(allData || {}), [dateStr]: list };
     setAllData(next);
-    try {
-      await saveAllData(next);
-      setSaveError("");
-    } catch (e) {
-      setSaveError("저장에 실패했어요. 네트워크를 확인하고 다시 시도해주세요.");
-    }
+    try { await saveAllData(next); setSaveError(""); }
+    catch (e) { setSaveError("저장에 실패했어요. 네트워크를 확인하고 다시 시도해주세요."); }
   }, [allData]);
 
   const conflictIds = useMemo(() => {
@@ -157,85 +155,66 @@ function App() {
   };
   const handleDelete = (id) => { persist(currentDate, bookings.filter(b => b.id !== id)); closeModal(); };
 
-  const buildCopyText = () => {
-    const sorted = [...bookings].sort((a,b) => toMin(a.start) - toMin(b.start) || a.room - b.room);
-    return sorted.map(b => `${b.start}~${b.end} ${b.team}_RNT${b.room}`).join("\n");
-  };
-  const handleCopy = async () => {
-    const text = buildCopyText();
-    if (!text) return;
-    try { await navigator.clipboard.writeText(text); setCopyState("copied"); setTimeout(() => setCopyState("idle"), 1800); }
-    catch (e) { setCopyFallbackText(text); setCopyState("fallback"); }
-  };
-
   const hours = Array.from({ length: DAY_END - DAY_START }, (_, i) => i + DAY_START);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const showNowLine = isToday && nowMinutes >= DAY_START * 60 && nowMinutes <= DAY_END * 60;
+  const nowTop = ((nowMinutes - DAY_START * 60) / 60) * HOUR_HEIGHT;
 
   if (allData === null) {
     return <div style={{ fontFamily: "-apple-system, sans-serif", padding: 40, color: "#6B7280" }}>불러오는 중...</div>;
   }
 
   return (
-    <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#E9EAEE", color: "#181B21", minHeight: "100vh", display: "flex", gap: 16, padding: 16 }}>
-      <div style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ background: "#181B21", color: "#fff", borderRadius: 10, padding: "14px 16px" }}>
-          <div style={{ fontSize: 11, letterSpacing: 0.3, color: "#9BA0AC", marginBottom: 6 }}>면접실 운용 현황</div>
+    <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#E9EAEE", color: "#181B21", height: "100vh", display: "flex", gap: 16, padding: 16, overflow: "hidden" }}>
+      <div style={{ width: 264, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
+        <div style={{ background: "#181B21", color: "#fff", borderRadius: 12, padding: "16px 18px", boxShadow: "0 1px 3px rgba(20,22,28,0.12)" }}>
+          <div style={{ fontSize: 11, letterSpacing: 0.4, color: "#9BA0AC", marginBottom: 8, fontWeight: 600 }}>면접실 운용 현황</div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <button onClick={() => setCurrentDate(d => addDays(d, -1))} style={iconBtnStyle}>◀</button>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>{fmtDate(currentDate)}</div>
+            <div style={{ fontSize: 15.5, fontWeight: 700 }}>{fmtDate(currentDate)}</div>
             <button onClick={() => setCurrentDate(d => addDays(d, 1))} style={iconBtnStyle}>▶</button>
           </div>
-          <button onClick={() => setCurrentDate(toDateStr(new Date()))} style={{ marginTop: 10, width: "100%", background: "#2A2F3A", color: "#D9DCE3", border: "none", borderRadius: 6, padding: "6px 0", fontSize: 12, cursor: "pointer" }}>오늘로 이동</button>
+          <button onClick={() => setCurrentDate(toDateStr(new Date()))} style={{ marginTop: 12, width: "100%", background: "#2A2F3A", color: "#D9DCE3", border: "none", borderRadius: 7, padding: "7px 0", fontSize: 12, cursor: "pointer", fontWeight: 500 }}>오늘로 이동</button>
         </div>
 
-        <div style={{ background: "#fff", borderRadius: 10, padding: "12px 14px" }}>
-          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 8 }}>면접실</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(20,22,28,0.05)" }}>
+          <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 10, fontWeight: 600 }}>면접실</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ROOMS.map(r => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: r.color, display: "inline-block" }} />{r.label}
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5 }}>
+                <span style={{ width: 11, height: 11, borderRadius: 3.5, background: r.color, display: "inline-block" }} />{r.label}
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ background: conflictPairs.length ? "#FBEAE3" : "#fff", border: conflictPairs.length ? `1px solid ${CONFLICT_COLOR}` : "1px solid transparent", borderRadius: 10, padding: "12px 14px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: conflictPairs.length ? CONFLICT_COLOR : "#181B21" }}>⚠ 중복 예약 {conflictPairs.length}건</div>
+        <div style={{ background: conflictPairs.length ? "#FBEAE3" : "#fff", border: conflictPairs.length ? `1px solid ${CONFLICT_COLOR}` : "1px solid transparent", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(20,22,28,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, fontWeight: 700, color: conflictPairs.length ? CONFLICT_COLOR : "#181B21" }}>⚠ 중복 예약 {conflictPairs.length}건</div>
           {conflictPairs.length > 0 ? conflictPairs.map((p,i) => (
-            <div key={i} style={{ fontSize: 12, color: "#8A2E11", marginTop: 8, lineHeight: 1.5 }}>
+            <div key={i} style={{ fontSize: 12, color: "#8A2E11", marginTop: 8, lineHeight: 1.55 }}>
               <b>{p.room}</b> · {p.a.team}({p.a.start}~{p.a.end}) ↔ {p.b.team}({p.b.start}~{p.b.end})
             </div>
-          )) : <div style={{ fontSize: 12, color: "#9BA0AC", marginTop: 4 }}>겹치는 예약이 없어요.</div>}
-        </div>
-
-        <div style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 12, color: "#6B7280" }}>그룹웨어 붙여넣기용</div>
-            <button onClick={handleCopy} disabled={!bookings.length} style={copyBtnStyle(!!bookings.length)}>{copyState === "copied" ? "✓ 복사됨" : "복사"}</button>
-          </div>
-          <div style={{ fontFamily: "SFMono-Regular, Consolas, monospace", fontSize: 12.5, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "#3A3F4A", overflowY: "auto", flex: 1 }}>
-            {bookings.length === 0 ? "이 날짜에 등록된 면접 예약이 없어요." : buildCopyText()}
-          </div>
-          {copyState === "fallback" && <textarea readOnly value={copyFallbackText} onFocus={e => e.target.select()} style={{ width: "100%", height: 70, fontSize: 11, borderRadius: 6, border: "1px solid #D9DCE3", padding: 6 }} />}
+          )) : <div style={{ fontSize: 12, color: "#9BA0AC", marginTop: 6 }}>겹치는 예약이 없어요.</div>}
         </div>
 
         <button onClick={() => openAdd()} style={addBtnStyle}>＋ 예약 추가</button>
-        {(saveError || loadError) && <div style={{ color: CONFLICT_COLOR, fontSize: 12 }}>{saveError || loadError}</div>}
+        {(saveError || loadError) && <div style={{ color: CONFLICT_COLOR, fontSize: 12, padding: "0 2px" }}>{saveError || loadError}</div>}
       </div>
 
-      <div style={{ flex: 1, background: "#fff", borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", borderBottom: "1px solid #E4E6EA" }}>
-          <div style={{ width: 52, flexShrink: 0 }} />
+      <div style={{ flex: 1, minHeight: 0, background: "#fff", borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(20,22,28,0.06)" }}>
+        <div style={{ display: "flex", borderBottom: "1px solid #E4E6EA", flexShrink: 0 }}>
+          <div style={{ width: 56, flexShrink: 0 }} />
           {ROOMS.map(r => (
-            <div key={r.id} style={{ flex: 1, textAlign: "center", padding: "10px 0", fontSize: 13, fontWeight: 600, borderLeft: "1px solid #E4E6EA" }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: r.color, display: "inline-block", marginRight: 6 }} />{r.label}
+            <div key={r.id} style={{ flex: 1, textAlign: "center", padding: "12px 0", fontSize: 13.5, fontWeight: 700, borderLeft: "1px solid #E4E6EA", background: r.tint }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2.5, background: r.color, display: "inline-block", marginRight: 7 }} />{r.label}
             </div>
           ))}
         </div>
-        <div style={{ position: "relative", overflowY: "auto", flex: 1 }}>
+        <div style={{ position: "relative", overflowY: "auto", flex: 1, minHeight: 0, paddingTop: 10, paddingBottom: 16 }}>
           <div style={{ display: "flex", position: "relative", height: TOTAL_HEIGHT }}>
-            <div style={{ width: 52, flexShrink: 0, position: "relative" }}>
+            <div style={{ width: 56, flexShrink: 0, position: "relative" }}>
               {hours.map(h => (
-                <div key={h} style={{ position: "absolute", top: (h - DAY_START) * HOUR_HEIGHT - 7, right: 8, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace" }}>{pad2(h)}:00</div>
+                <div key={h} style={{ position: "absolute", top: (h - DAY_START) * HOUR_HEIGHT - 7, right: 10, fontSize: 11, color: "#9BA0AC", fontFamily: "SFMono-Regular, Consolas, monospace", fontWeight: 500 }}>{pad2(h)}:00</div>
               ))}
             </div>
             {ROOMS.map(room => (
@@ -250,26 +229,29 @@ function App() {
                 style={{ flex: 1, position: "relative", borderLeft: "1px solid #E4E6EA", cursor: "copy" }}
               >
                 {hours.map(h => (
-                  <div key={h} style={{ position: "absolute", top: (h - DAY_START) * HOUR_HEIGHT, left: 0, right: 0, height: 1, background: h % 2 === 0 ? "#EEF0F3" : "#F5F6F8" }} />
+                  <div key={h} style={{ position: "absolute", top: (h - DAY_START) * HOUR_HEIGHT, left: 0, right: 0, height: 1, background: h % 3 === 0 ? "#E4E6EA" : "#F0F1F4" }} />
                 ))}
+                {showNowLine && (
+                  <div style={{ position: "absolute", top: nowTop, left: 0, right: 0, height: 2, background: "#D6392A", zIndex: 3, opacity: 0.85 }} />
+                )}
                 {bookings.filter(b => b.room === room.id).map(b => {
                   const s = toMin(b.start), e = toMin(b.end);
                   const top = ((s - DAY_START * 60) / 60) * HOUR_HEIGHT;
-                  const height = Math.max(((e - s) / 60) * HOUR_HEIGHT, 20);
+                  const height = Math.max(((e - s) / 60) * HOUR_HEIGHT, 22);
                   const isConflict = conflictIds.has(b.id);
                   return (
                     <div key={b.id}
                       onClick={(ev) => { ev.stopPropagation(); openEdit(b); }}
                       style={{
-                        position: "absolute", top, height, left: 4, right: 4, borderRadius: 6, padding: "4px 7px",
+                        position: "absolute", top, height, left: 5, right: 5, borderRadius: 7, padding: "5px 8px",
                         fontSize: 12, color: "#fff", cursor: "pointer", overflow: "hidden",
                         background: isConflict ? `repeating-linear-gradient(135deg, ${CONFLICT_COLOR}, ${CONFLICT_COLOR} 6px, #D6592E 6px, #D6592E 12px)` : room.color,
-                        boxShadow: isConflict ? `0 0 0 2px #fff, 0 0 0 3.5px ${CONFLICT_COLOR}` : "none",
+                        boxShadow: isConflict ? `0 0 0 2px #fff, 0 0 0 3.5px ${CONFLICT_COLOR}` : "0 1px 2px rgba(0,0,0,0.15)",
                         zIndex: isConflict ? 2 : 1,
                       }}
                       title={`${b.team} ${b.start}~${b.end}`}
                     >
-                      <div style={{ fontWeight: 600, lineHeight: 1.3 }}>{isConflict ? "⚠ " : ""}{b.team}</div>
+                      <div style={{ fontWeight: 700, lineHeight: 1.35 }}>{isConflict ? "⚠ " : ""}{b.team}</div>
                       <div style={{ opacity: 0.9, fontSize: 11 }}>{b.start}~{b.end}</div>
                     </div>
                   );
@@ -282,9 +264,9 @@ function App() {
 
       {modal && (
         <div onClick={closeModal} style={{ position: "fixed", inset: 0, background: "rgba(20,22,28,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 20, width: 320 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 22, width: 320, boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{modal.mode === "add" ? "면접 예약 추가" : "면접 예약 수정"}</div>
+              <div style={{ fontSize: 15.5, fontWeight: 700 }}>{modal.mode === "add" ? "면접 예약 추가" : "면접 예약 수정"}</div>
               <button onClick={closeModal} style={{ background: "none", border: "none", cursor: "pointer", color: "#9BA0AC", fontSize: 16 }}>✕</button>
             </div>
             <label style={labelStyle}>면접실</label>
@@ -305,7 +287,7 @@ function App() {
             </div>
             {toMin(modal.form.end) <= toMin(modal.form.start) && <div style={{ color: CONFLICT_COLOR, fontSize: 12, marginTop: -6, marginBottom: 10 }}>종료 시간은 시작 시간보다 늦어야 해요.</div>}
             {(toMin(modal.form.start) < toMin(MIN_TIME) || toMin(modal.form.end) > toMin(MAX_TIME)) && <div style={{ color: CONFLICT_COLOR, fontSize: 12, marginTop: -6, marginBottom: 10 }}>운영 시간(08:00~21:00)을 벗어났어요.</div>}
-            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               {modal.mode === "edit" && <button onClick={() => handleDelete(modal.form.id)} style={deleteBtnStyle}>🗑 삭제</button>}
               <button onClick={handleSubmit} style={saveBtnStyle}>저장</button>
             </div>
@@ -316,13 +298,12 @@ function App() {
   );
 }
 
-const iconBtnStyle = { background: "#2A2F3A", border: "none", color: "#D9DCE3", width: 26, height: 26, borderRadius: 6, cursor: "pointer" };
-const addBtnStyle = { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#181B21", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 13.5, fontWeight: 600, cursor: "pointer" };
-const copyBtnStyle = (enabled) => ({ background: enabled ? "#181B21" : "#E4E6EA", color: enabled ? "#fff" : "#9BA0AC", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, cursor: enabled ? "pointer" : "default" });
-const labelStyle = { display: "block", fontSize: 11.5, color: "#6B7280", marginBottom: 4, marginTop: 10 };
-const inputStyle = { width: "100%", boxSizing: "border-box", border: "1px solid #E4E6EA", borderRadius: 7, padding: "8px 10px", fontSize: 13.5, marginBottom: 4 };
-const deleteBtnStyle = { display: "flex", alignItems: "center", gap: 5, background: "#fff", color: CONFLICT_COLOR, border: `1px solid ${CONFLICT_COLOR}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, cursor: "pointer" };
-const saveBtnStyle = { flex: 1, background: "#181B21", color: "#fff", border: "none", borderRadius: 8, padding: "9px 0", fontSize: 13.5, fontWeight: 600, cursor: "pointer" };
+const iconBtnStyle = { background: "#2A2F3A", border: "none", color: "#D9DCE3", width: 28, height: 28, borderRadius: 7, cursor: "pointer", fontSize: 12 };
+const addBtnStyle = { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#181B21", color: "#fff", border: "none", borderRadius: 9, padding: "11px 0", fontSize: 13.5, fontWeight: 700, cursor: "pointer", boxShadow: "0 1px 3px rgba(20,22,28,0.15)" };
+const labelStyle = { display: "block", fontSize: 11.5, color: "#6B7280", marginBottom: 4, marginTop: 10, fontWeight: 500 };
+const inputStyle = { width: "100%", boxSizing: "border-box", border: "1px solid #E4E6EA", borderRadius: 8, padding: "8px 10px", fontSize: 13.5, marginBottom: 4 };
+const deleteBtnStyle = { display: "flex", alignItems: "center", gap: 5, background: "#fff", color: CONFLICT_COLOR, border: `1px solid ${CONFLICT_COLOR}`, borderRadius: 9, padding: "9px 12px", fontSize: 13, cursor: "pointer" };
+const saveBtnStyle = { flex: 1, background: "#181B21", color: "#fff", border: "none", borderRadius: 9, padding: "9px 0", fontSize: 13.5, fontWeight: 700, cursor: "pointer" };
 
 ReactDOM.createRoot(document.getElementById("root")).render(NEEDS_SETUP ? <SetupNotice /> : <App />);
 </script>
